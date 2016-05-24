@@ -1,0 +1,8 @@
+<%= link_to("Raíz", {:controller => "hgp_cmis", :action => "show", :id=> @project }) %>
+<% path.each do |path_element| %>
+ / 
+ <%= link_to(h(path_element.title), {:controller => "hgp_cmis", :action => "show", :id=> @project, :folder_path => path_element.path}) %>
+ <% if path_element.notification %>
+	<%= image_tag("notify.png", :plugin => "hgp_cmis", :title => l(:title_notifications_active)) %>
+ <% end %>
+<% end %>

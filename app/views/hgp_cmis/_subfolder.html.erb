@@ -1,0 +1,72 @@
+<% if (!subfolder.nil?) %>
+<tr id="folder_<%= subfolder.id %>" class="issue odd">
+	<td class="check">
+		<%= check_box_tag("subfolders[]", subfolder.path, false, :title => l(:title_check_for_zip_download_or_email)) %>
+	</td>
+	<!-- Ya no hace falta el status, está todo siempre sincronizado contra alfresco
+	<td class="status">		
+		<% if (subfolder.dirty) %>
+			<span class="elementDirty">[u]</span>
+		<% else %>
+			<span class="elementOk">[ok]</span>
+		<% end %>		
+	</td>
+	-->
+	<td class="title" align="left">		
+		<%= link_to(h(subfolder.title),
+          {:action => "show", :id => @project, :folder_path => subfolder.path, :alfresco_uuid => subfolder.alfresco_uuid},
+          :class => "icon icon-folder") %>
+		<!--<div class="filename" title="<%= l(:title_number_of_files_in_directory)%>">[<%= subfolder.deep_file_count %>]</div>-->
+	</td>
+	<td class="size" title="<%= l(:title_total_size_of_all_files)%>"><%= number_to_human_size(subfolder.deep_size) %></td>
+	<td class="modified"><%= subfolder.created_at.strftime("%d-%m-%Y %H:%M") %></td>
+	<td class="modified"><%= subfolder.updated_at.strftime("%d-%m-%Y %H:%M") %></td>
+	<!--<td class="version"></td>-->
+	<td class="author"><%= h(subfolder.user) %></td>
+	<td class="actions">
+		<% if User.current.allowed_to?(:hgp_cmis_file_approval, @project) %>
+			<!--
+			<div class="right_icon_box">
+			<% if subfolder.notification %>
+				<%= link_to_function(image_tag("notify.png", :plugin => "hgp_cmis"),
+	        			"manipulation_link('#{url_for(:action => 'notify_deactivate', :id => @project, :folder_id => subfolder)}')",
+						 :title => l(:title_notifications_active_deactivate)) %>
+			<% else %>
+				<%= link_to_function(image_tag("notifynot.png", :plugin => "hgp_cmis"),
+	        			"manipulation_link('#{url_for(:action => 'notify_activate', :id => @project, :folder_id => subfolder)}')", 
+						:title => l(:title_notifications_not_active_activate)) %>
+			<% end %>
+			</div>
+			-->
+		<% end %>
+		<div class="right_icon_box" style="width: 40px;">
+			<% if User.current.allowed_to?(:hgp_cmis_folder_manipulation, @project) %>
+			<!-- No permito editar carpetas
+			<div style="float: left">
+			<%= link_to(image_tag("edit.png", :class =>"detail_icon"), 
+					{:action => "edit", :id => @project, :folder_path => subfolder.path },
+					:title => l(:link_edit, :title => h(subfolder.title))) %>
+			</div>
+			-->			
+			<div style="float: right">
+				<%= link_to_function(image_tag("delete.png", :plugin => "hgp_cmis"),
+						"confirmation_link('#{url_for(:action => 'delete', :id => @project, :delete_folder_path => subfolder.path)}')", 
+						:title => l(:title_delete))%>
+			</div>
+			<% end %>
+		</div>
+		<br class="clear" />
+	</td>
+	<td class="hidden">0</td>
+	<td class="hidden"><%= subfolder.deep_size %></td>
+	
+	<!--
+	<% if (subfolder.dirty) %>
+		<%= javascript_tag (remote_function({ :url => { :controller => 'hgp_cmis', :action => 'synchronize_folder', :id => @project, :subfolder_id => subfolder},
+		                     :method => :post,
+		                     :update => 'folder_' + subfolder.id.to_s
+		                   })) %>		
+	<% end %>
+	-->
+</tr>
+<% end %>

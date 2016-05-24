@@ -1,0 +1,23 @@
+<div id="login-form">
+<%= form_tag({:action=> "login"}) do %>
+<table>
+<tr>
+	<td colspan="2">Introduzca sus credenciales de usuario de Alfresco</td>
+</tr>
+<tr>
+    <td align="right"><label for="username"><%=l(:field_login)%>:</label></td>
+    <td align="left"><%= text_field_tag 'cmis_server_login', nil, :tabindex => '1' %></td>
+</tr>
+<tr>
+    <td align="right"><label for="password"><%=l(:field_password)%>:</label></td>
+    <td align="left"><%= password_field_tag 'cmis_server_password', nil, :tabindex => '2' %></td>
+</tr>
+<tr>
+    <td align="right">
+        <input type="submit" name="login" value="<%=l(:button_login)%> &#187;" tabindex="5"/>
+    </td>
+</tr>
+</table>
+<%= hidden_field_tag('id', @project.identifier) %>
+<% end %>
+</div>

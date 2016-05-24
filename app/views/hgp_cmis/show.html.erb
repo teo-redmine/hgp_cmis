@@ -1,0 +1,119 @@
+<% html_title(l(:hgp_cmis)) %>
+
+<div class="contextual">
+	<% if User.current.allowed_to?(:hgp_cmis_folder_manipulation, @project) %>
+		<!-- No permito editar carpetas
+		<% if @folder.nil? %>
+			<%= link_to("", {:action => "edit_root", :id => @project},
+					:title => l(:link_edit, :title => l(:link_documents)), :class => "icon icon-edit") %> &nbsp;
+		<% else @folder.nil? %>
+			<%= link_to("", {:action => "edit", :id => @project, :folder_id => @folder },
+					:title => l(:link_edit, :title => h(@folder.title)), :class => "icon icon-edit") %> &nbsp; 
+		<% end %>
+		-->
+		<%= link_to("", {:action => "new", :id => @project, :parent_path => @folder_path, :alfresco_uuid => @folder_uuid},
+				:title => l(:link_create_folder), :class => "icon icon-add") %>
+	<% end %>
+</div>
+
+<% path = @folder.nil? ? [] : @hgp_cmis_path %>
+<h2>
+	<%= render(:partial => 'path', :locals => {:path => path}) %>
+</h2>
+
+<div class="wiki">
+<%= textilizable(@folder.nil? ? @project.hgp_cmis_description : @folder.description) %>
+</div>
+
+<%=
+
+form_tag({:action => "entries_operation", :id => @project, :folder_path => @folder_path}, :method => :post, 
+	:class => "dmfs_entries", :id => "entries_form") do
+%>
+	<%= hidden_field_tag("action") %>
+	<div class="controls" style="float: left">
+		<% if User.current.allowed_to?(:hgp_cmis_file_manipulation, @project) %>
+			<button type="button" id="entries_delete_button" title="<%=l(:title_delete_checked)%>"><%=l(:button_delete)%></button>
+		<% end %>
+	</div>
+	<table class="list" id="browser">
+		<thead>
+			<tr id="root">
+				<th class="check">
+					<input id="check_all_entries" type="checkbox" />
+				</th>
+				<!--<th>Columna de estado de sincronización con HGP_CMIS</th>-->
+				<th><%= l(:link_title) %></th>
+				<th><%= l(:link_size) %></th>
+				<th><%= l(:link_created) %></th>
+				<th><%= l(:link_modified) %></th>
+				<!--<th><%= l(:link_ver) %></th>-->
+				<th><%= l(:link_author) %></th>
+				<th></th>
+				<th class="hidden"></th>
+				<th class="hidden"></th>
+			</tr>
+		</thead>
+	<tbody id="browserBody">
+		<%= render(:partial => "items") %>
+	</tbody>
+	</table>
+	<br />
+<% end %>
+
+<script type="text/javascript">
+	jQuery("#entries_delete_button").click(function(event) {
+		if(window.confirm("<%= l(:question_do_you_really_want_to_delete_entries) %>")) {
+			jQuery("#entries_form").attr("action", "<%= url_for(:action => 'delete_entries', :id => @project, :folder_path => @folder_path) %>");
+			jQuery("#entries_form").submit();
+		}
+	})
+	
+	jQuery("#check_all_entries").click(function(event) {
+		var $this = jQuery(this);
+		if($this.prop("checked")) {
+			jQuery("input[type=checkbox]", jQuery("#browser > tbody")).prop("checked", true);
+		} else {
+			jQuery("input[type=checkbox]", jQuery("#browser > tbody")).prop("checked", false);
+		}
+	})			
+</script>
+
+<%
+sUrl = "jquery.dataTables/en.json"
+sUrl = "jquery.dataTables/#{I18n.locale.to_s.downcase}.json" if I18n.locale && !I18n.locale.to_s.match(/^en.*/)
+%>
+
+<% content_for :header_tags do %>
+	<%= stylesheet_link_tag "jquery-ui/jquery-ui-1.8.13.css", :plugin => "hgp_cmis" %>
+	<%= stylesheet_link_tag "plupload/jquery.ui.plupload.css", :plugin => "hgp_cmis" %>
+	<%= stylesheet_link_tag "jquery.dataTables/jquery-ui.dataTables.css", :plugin => "hgp_cmis" %>
+	<%= stylesheet_link_tag "hgp_cmis", :plugin => "hgp_cmis" %>
+	
+	<%= javascript_include_tag "jquery-1.6.1.min.js", :plugin => "hgp_cmis" %>
+	<%= javascript_include_tag "jquery-ui-1.8.13.min.js", :plugin => "hgp_cmis" %>
+	<%= javascript_include_tag "jquery.dataTables/jquery.dataTables.min.js", :plugin => "hgp_cmis" %>
+	<script type="text/javascript">
+		jQuery.noConflict();
+		
+		function manipulation_link(action) {
+			jQuery("#entries_form").attr("action", action);
+			jQuery("#entries_form").submit();
+		};
+		
+		function confirmation_link(action) {
+			if(!window.confirm("<%= l(:question_do_you_really_want_to_delete_this_entry) %>")) return;
+			jQuery("#entries_form").attr("action", action);
+			jQuery("#entries_form").submit();
+		};
+		
+		function validation_link(action) {
+			if(!window.confirm("<%= l(:question_validate_entry) %>")) return;
+			jQuery("#entries_form").attr("action", action);
+			jQuery("#entries_form").submit();
+		};
+	</script>
+<% end %>
+
+<%= render(:partial => "multi_upload") if User.current.allowed_to?(:hgp_cmis_file_manipulation, @project) || User.current.allowed_to?(:hgp_cmis_create_temp_files, @project) %>
+<br />

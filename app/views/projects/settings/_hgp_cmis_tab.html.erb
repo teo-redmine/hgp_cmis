@@ -1,0 +1,14 @@
+<%= form_for [:project, @project],
+            :url => { :controller => 'hgp_cmis_state', :action => 'user_pref_save', :id => @project },
+            :html => {:id => 'hgp_cmis-form'} do |f| %>
+<div class="box tabular">
+<% HgpCmisProjectSettings::config_params.each do |param| %>
+<p>
+  <label><%=l("label_" + param)%></label>
+  <%= text_field_tag param, HgpCmisProjectSettings::get_project_param_value(@project, param) %>
+</p>
+<% end %>
+</div>
+<p><%= submit_tag l(:button_save) %></p>
+
+<% end %>
