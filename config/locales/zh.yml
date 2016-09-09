@@ -1,7 +1,7 @@
 # For Simplified Chinese
 zh:
   :hgp_cmis: "文档管家"
-  :label_hgp_cmis_file_plural: "HgpCmis files"
+  :label_hgp_cmis_file_plural: "Cmis files"
   :warning_no_entries_selected: "未选择任何条目"
   :error_email_to_must_be_entered: "请输入电子邮件"
   :notice_email_sent: "邮件已发送"
@@ -164,7 +164,7 @@ zh:
   :heading_access_downloads_emails: "存取次数"
   :heading_access_first: "首次"
   :heading_access_last: "末次"
-  :label_hgp_cmis_updated: "Hgp Cmis updated"
+  :label_hgp_cmis_updated: "Cmis updated"
   :title_total_size_of_all_files: "文件夹所有文件总大小"
   :project_module_hgp_cmis: "文档管家"
 
@@ -176,7 +176,7 @@ zh:
   :label_target_project: "Target project"
   :label_target_folder: "Target folder"
   :title_copy_or_move: "Copy/Move"
-  :label_hgp_cmis_folder_plural: "HgpCmis folders"
+  :label_hgp_cmis_folder_plural: "Cmis folders"
   :comment_moved_from: "Moved from %{source}"
   :error_target_folder_same: "Target folder and project are the same as current"
   :error_file_cannot_be_moved: "File can't be moved"

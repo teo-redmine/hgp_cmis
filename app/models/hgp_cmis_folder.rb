@@ -35,8 +35,11 @@ class HgpCmisFolder < ActiveRecord::Base
   
   belongs_to :project
   belongs_to :folder, :class_name => "HgpCmisFolder", :foreign_key => "hgp_cmis_folder_id"
-  has_many :subfolders, -> { order "title = ASC" }, :class_name => "HgpCmisFolder", :foreign_key => "hgp_cmis_folder_id"
-  has_many :files, -> { where "deleted = false" }, :class_name => "HgpCmisFile", :foreign_key => "hgp_cmis_folder_id"
+  has_many :subfolders, -> { order(:title) }, :class_name => "HgpCmisFolder", :foreign_key => "hgp_cmis_folder_id"
+  has_many :files, -> { where "deleted = false" }, 
+                      :class_name => "HgpCmisFile", 
+                      :foreign_key => "hgp_cmis_folder_id",
+                      :dependent => :delete_all 
   belongs_to :user
   
   validates_presence_of :title
@@ -47,6 +50,21 @@ class HgpCmisFolder < ActiveRecord::Base
   validate :check_cycle
   
   before_create :before_create
+
+  scope :visible, lambda { |*args|
+    where(deleted: false) 
+  }
+  scope :deleted, lambda { |*args|
+    where(deleted: true)
+  }  
+
+  acts_as_customizable
+
+  acts_as_searchable :columns => ["#{self.table_name}.title", "#{self.table_name}.description"],
+        :project_key => 'project_id',
+        :date_column => 'updated_at',
+        :permission => :view_dmsf_files,
+        :scope => self.joins(:project)  
   
   acts_as_event :title => Proc.new {|o| o.title},
                 :description => Proc.new {|o| o.description },
@@ -58,7 +76,6 @@ class HgpCmisFolder < ActiveRecord::Base
 	attr_accessor :alfresco_uuid
   
   def before_create
-  	
     # Asigno el path desde el controller
     #self.path = HgpCmisFolder.folder_path(self)
     begin
@@ -72,6 +89,8 @@ class HgpCmisFolder < ActiveRecord::Base
       raise e
     rescue Errno::ECONNREFUSED=>e
       raise HgpCmisException.new, l(:unable_connect_hgp_cmis)
+    rescue ActiveCMIS::HTTPError::ServerError => server_error
+      raise HgpCmisException.new, l(:hgp_cmis_permission_denied)
     end
   end
   
@@ -133,7 +152,7 @@ class HgpCmisFolder < ActiveRecord::Base
   
   def delete
     # Permito eliminar carpetas que tengan elementos dentro
-    # return false if !self.subfolders.empty? || !self.files.empty?    
+    # return false if !self.subfolders.empty? || !self.files.empty?
     destroy
   end
   
@@ -232,42 +251,110 @@ class HgpCmisFolder < ActiveRecord::Base
     return new_folder
   end
   
-  # To fullfill searchable module expectations
-  def self.search(tokens, projects=nil, options={})
+  # To fulfill searchable module expectations
+  def self.search(tokens, projects = nil, options = {}, user = User.current)
     tokens = [] << tokens unless tokens.is_a?(Array)
-    projects = [] << projects unless projects.nil? || projects.is_a?(Array)
+    projects = [] << projects if projects.is_a?(Project)
+    project_ids = projects.collect(&:id) if projects           
     
-    find_options = {:include => [:project]}
-    find_options[:order] = "hgp_cmis_folders.updated_at " + (options[:before] ? 'DESC' : 'ASC')
-    
-    limit_options = {}
-    limit_options[:limit] = options[:limit] if options[:limit]
-    if options[:offset]
-      limit_options[:conditions] = "(hgp_cmis_folders.updated_at " + (options[:before] ? '<' : '>') + "'#{connection.quoted_date(options[:offset])}')"
+    if options[:offset]      
+       limit_options = ["hgp_cmis_folder.updated_at #{options[:before] ? '<' : '>'} ?", options[:offset]]
+    end
+
+    if options[:titles_only]
+      columns = [searchable_options[:columns][1]]
+    else      
+      columns = searchable_options[:columns]
     end
     
-    columns = options[:titles_only] ? ["hgp_cmis_folders.title"] : ["hgp_cmis_folders.title", "hgp_cmis_folders.description"]
-    
-    token_clauses = columns.collect {|column| "(LOWER(#{column}) LIKE ?)"}
-    
-    sql = (['(' + token_clauses.join(' OR ') + ')'] * tokens.size).join(options[:all_words] ? ' AND ' : ' OR ')
-    find_options[:conditions] = [sql, * (tokens.collect {|w| "%#{w.downcase}%"} * token_clauses.size).sort]
-    
+    token_clauses = columns.collect{ |column| "(LOWER(#{column}) LIKE ?)" }
+
+    sql = (['(' + token_clauses.join(' OR ') + ')'] * tokens.size).join(options[:all_words] ? ' AND ' : ' OR ')    
+    find_options = [sql, * (tokens.collect {|w| "%#{w.downcase}%"} * token_clauses.size).sort]
+
     project_conditions = []
-    project_conditions << (Project.allowed_to_condition(User.current, :view_hgp_cmis_files))
-    project_conditions << "project_id IN (#{projects.collect(&:id).join(',')})" unless projects.nil?
+    project_conditions << Project.allowed_to_condition(user, :view_hgp_cmis_folder) 
+    project_conditions << "#{HgpCmisFolder.table_name}.project_id IN (#{project_ids.join(',')})" if project_ids.present?
+
+    results = []        
     
-    results = []
-    results_count = 0
-    
-    with_scope(:find => {:conditions => [project_conditions.join(' AND ')]}) do
-      with_scope(:find => find_options) do
-        results_count = count(:all)
-        results = find(:all, limit_options)
+    scope = self.visible.joins(:project, :revisions)
+    scope = scope.limit(options[:limit]) unless options[:limit].blank?    
+    scope = scope.where(limit_options) unless limit_options.blank?
+    scope = scope.where(project_conditions.join(' AND '))    
+    results = scope.where(find_options).uniq.to_a
+
+    if !options[:titles_only] && $xapian_bindings_available
+      database = nil
+      begin
+        lang = Setting.plugin_hgp_cmis['hgp_cmis_stemming_lang'].strip
+        databasepath = File.join(
+          Setting.plugin_hgp_cmis['hgp_cmis_index_database'].strip, lang)
+        database = Xapian::Database.new(databasepath)
+      rescue Exception => e
+        Rails.logger.warn 'REDMAIN_XAPIAN ERROR: Xapian database is not properly set or initiated or is corrupted.'
+        Rails.logger.warn e.message
+      end
+
+      if database
+        enquire = Xapian::Enquire.new(database)
+
+        query_string = tokens.join(' ')
+        qp = Xapian::QueryParser.new()
+        stemmer = Xapian::Stem.new(lang)
+        qp.stemmer = stemmer
+        qp.database = database
+
+        case Setting.plugin_hgp_cmis['hgp_cmis_stemming_strategy'].strip
+          when 'STEM_NONE'
+            qp.stemming_strategy = Xapian::QueryParser::STEM_NONE
+          when 'STEM_SOME'
+            qp.stemming_strategy = Xapian::QueryParser::STEM_SOME
+          when 'STEM_ALL'
+            qp.stemming_strategy = Xapian::QueryParser::STEM_ALL
+        end
+
+        if options[:all_words]
+          qp.default_op = Xapian::Query::OP_AND
+        else
+          qp.default_op = Xapian::Query::OP_OR
+        end
+
+        query = qp.parse_query(query_string)
+
+        enquire.query = query
+        matchset = enquire.mset(0, 1000)
+
+        if matchset          
+          matchset.matches.each { |m|
+            docdata = m.document.data{url}
+            dochash = Hash[*docdata.scan(/(url|sample|modtime|author|type|size)=\/?([^\n\]]+)/).flatten]
+            filename = dochash['url']
+            if filename
+              hgp_cmis_attrs = filename.scan(/^([^\/]+\/[^_]+)_([\d]+)_(.*)$/)
+              id_attribute = 0
+              id_attribute = hgp_cmis_attrs[0][1] if hgp_cmis_attrs.length > 0
+              next if hgp_cmis_attrs.length == 0 || id_attribute == 0
+              next unless results.select{|f| f.id.to_s == id_attribute}.empty?
+              
+              hgp_cmis_folder = HgpCmisFolder.visible.where(limit_options).where(:id => id_attribute).first
+
+              if hgp_cmis_folder
+                if user.allowed_to?(:view_hgp_cmis_folder, hgp_cmis_folder.project) && 
+                    (project_ids.blank? || (project_ids.include?(hgp_cmis_folder.project.id)))                                    
+                    Redmine::Search.cache_store.write("HgpCmisFolder-#{hgp_cmis_folder.id}", 
+                      dochash['sample'].force_encoding('UTF-8')) if dochash['sample']                  
+                  break if(!options[:limit].blank? && results.count >= options[:limit])
+                  results << hgp_cmis_folder
+                end
+              end
+            end
+          }
+        end
       end
     end
     
-    [results, results_count]
+    [results, results.count]
   end
   
   private

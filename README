@@ -22,10 +22,3 @@ Configurar hgp_cmis
      * Columna: "Child node"
      * Fila:    "descriptor-current"
      * Copiar a partir de "system://system"
-
-===================
-Licencia
-===================
-This plugin is open-source and licensed under the "GNU General Public License v2" (GPL, http://www.gnu.org/licenses/old-licenses/gpl-2.0.html). See the included LICENSE.txt file for details.
-
-Based on redmine_dmsf by  Vít Jonáš. Project home: http://code.google.com/p/redmine-dmsf/

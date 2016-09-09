@@ -50,7 +50,7 @@ class HgpCmisController < ApplicationController
         @subfolders = folders_in_path(@folder.path)
         @files = files_in_path(@folder.path)
       end
-      
+
       @files.sort! do |a,b|
         a.last_revision.title <=> b.last_revision.title
       end
@@ -330,6 +330,7 @@ class HgpCmisController < ApplicationController
         newFold = map_repository_folder_to_redmine_folder(repositoryFold, path)
         res.push(newFold)
       }
+
       res.sort! { |a,b| a.title.downcase <=> b.title.downcase }
     rescue HgpCmisException=>e
       flash[:error] = e.message
@@ -369,7 +370,7 @@ class HgpCmisController < ApplicationController
   
   def delete_cmis_folder(path)
     cmis_connect(HgpCmisProjectSettings::get_project_params(@project))
-    remove_folder(path)
+    remove_folder(path) # Elimina en Alfresco (CMIS)
   end
   
   def delete_cmis_file(id)

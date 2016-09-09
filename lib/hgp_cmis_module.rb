@@ -252,7 +252,7 @@ module HgpCmisModule
     rescue ActiveCMIS::Error::ObjectNotFound
       puts "No se ha encontrado la carpeta " + completePath
     rescue ActiveCMIS::HTTPError::ServerError => e
-      flash[:error] = l(:hgp_cmis_user_permission_denied)
+      flash[:error] = l(:hgp_cmis_permission_denied)
       #redirect_to :controller => "hgp_cmis", :action => "login"
     end
     
@@ -281,7 +281,7 @@ module HgpCmisModule
       folder.items.select {|o| o.is_a?(ActiveCMIS::Document)}.map {|o|
         remove_document_relative(compose_path(path, o.name), isRelativePath)
       }
-      
+            
       folder.destroy
       
       # Update parent folder 

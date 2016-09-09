@@ -31,7 +31,7 @@ class HgpCmisFilesController < ApplicationController
     # download is put here to provide more clear and usable links
     begin
       if params.has_key?(:download)
-        if @file.deleted
+        if @file.nil? || @file.deleted
           render_404
           return
         end
@@ -260,9 +260,8 @@ class HgpCmisFilesController < ApplicationController
   end
   
   def find_file
-    
     @project = Project.find(params[:id])
-    
+
     if (params.keys.include?("file_id"))
       @file = HgpCmisFile.find(params[:file_id])
     else      
@@ -275,7 +274,7 @@ class HgpCmisFilesController < ApplicationController
         flash.discard
       rescue ActiveCMIS::Error::PermissionDenied
         flash[:error] = l(:hgp_cmis_permission_denied)
-        flash.discard
+        flash.discard 
       end
     end
   end

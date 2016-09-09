@@ -36,6 +36,13 @@ class HgpCmisFile < ActiveRecord::Base
   validates_presence_of :name
   validates_format_of :name, :with => HgpCmisFolder.invalid_characters,
     :message => l(:error_contains_invalid_character)
+
+  scope :visible, lambda { |*args|
+    where(deleted: false) 
+  }
+  scope :deleted, lambda { |*args|
+    where(deleted: true)
+  } 
   
   validate :validates_name_uniqueness 
   
@@ -44,12 +51,35 @@ class HgpCmisFile < ActiveRecord::Base
     errors.add(:name, l("activerecord.errors.messages.taken")) unless
       existing_file.nil? || existing_file.id == self.id
   end
-  
-  acts_as_event :title => Proc.new {|o| "#{o.title} - #{o.name}"},
-                :description => Proc.new {|o| o.description },
-                :url => Proc.new {|o| {:controller => "hgp_cmis_files", :action => "show", :id => o, :download => ""}},
-                :datetime => Proc.new {|o| o.updated_at },
-                :author => Proc.new {|o| o.last_revision.user }
+
+  acts_as_event :title => Proc.new { |o| o.name },
+                :description => Proc.new { |o|                  
+                  desc = Redmine::Search.cache_store.fetch("HgpCmisFile-#{o.id}")                  
+                  if desc
+                    Redmine::Search.cache_store.delete("HgpCmisFile-#{o.id}")                      
+                  else
+                    desc = o.description
+                    desc += ' / ' if o.description.present? && o.last_revision.comment.present?
+                    desc += o.last_revision.comment if o.last_revision.comment.present?
+                  end                 
+                  desc
+                },
+                :url => Proc.new { |o| 
+                            download_url = {:controller => 'hgp_cmis_files', :action => 'show',
+                                            :download => '', :id => o.project}
+                            if (o.last_revision.workflow == 1)
+                              download_url[:file_id] = o.id
+                            else
+                              download_url[:file_path] = HgpCmisFolder.find(o.hgp_cmis_folder_id).path+"/"+o.title
+                            end 
+                            download_url
+                        },
+                :datetime => Proc.new { |o| o.updated_at },
+                :author => Proc.new { |o| o.last_revision.user }
+
+  acts_as_searchable :columns => ["#{table_name}.name", "#{HgpCmisFileRevision.table_name}.title", "#{HgpCmisFileRevision.table_name}.description", "#{HgpCmisFileRevision.table_name}.comment"],
+    :project_key => 'project_id',
+    :date_column => "#{table_name}.updated_at" 
   
   #TODO: place into better place
   def self.storage_path
@@ -154,6 +184,11 @@ class HgpCmisFile < ActiveRecord::Base
     self.notification = true
     self.save!
   end
+
+  def self.search_result_ranks_and_ids(tokens, user = User.current, projects = nil, options = {})
+    r = self.search(tokens, projects, options, user)[0]
+    r.map{ |f| [f.updated_at.to_i, f.id]}
+  end 
   
   def display_name
     #if self.name.length > 33
@@ -211,120 +246,110 @@ class HgpCmisFile < ActiveRecord::Base
     
     return file
   end
-  
-  # To fullfill searchable module expectations
-  def self.search(tokens, projects=nil, options={})
-    tokens = [] << tokens unless tokens.is_a?(Array)
-    projects = [] << projects unless projects.nil? || projects.is_a?(Array)
 
-    find_options = {:include => [:project,:revisions]}
-    find_options[:order] = "hgp_cmis_files.updated_at " + (options[:before] ? 'DESC' : 'ASC')
+  # To fulfill searchable module expectations
+  def self.search(tokens, projects = nil, options = {}, user = User.current)
+    tokens = [] << tokens unless tokens.is_a?(Array)
+    projects = [] << projects if projects.is_a?(Project)
+    project_ids = projects.collect(&:id) if projects           
     
-    limit_options = {}
-    limit_options[:limit] = options[:limit] if options[:limit]
-    if options[:offset]
-      limit_options[:conditions] = "(hgp_cmis_files.updated_at " + (options[:before] ? '<' : '>') + "'#{connection.quoted_date(options[:offset])}')"
+    if options[:offset]      
+       limit_options = ["hgp_cmis_files.updated_at #{options[:before] ? '<' : '>'} ?", options[:offset]]
+    end
+
+    if options[:titles_only]
+      columns = [searchable_options[:columns][1]]
+    else      
+      columns = searchable_options[:columns]
     end
     
-    columns = ["hgp_cmis_files.name","hgp_cmis_file_revisions.title", "hgp_cmis_file_revisions.description"]
-    columns = ["hgp_cmis_file_revisions.title"] if options[:titles_only]
-            
-    token_clauses = columns.collect {|column| "(LOWER(#{column}) LIKE ?)"}
-    
-    sql = (['(' + token_clauses.join(' OR ') + ')'] * tokens.size).join(options[:all_words] ? ' AND ' : ' OR ')
-    find_options[:conditions] = [sql, * (tokens.collect {|w| "%#{w.downcase}%"} * token_clauses.size).sort]
-    
+    token_clauses = columns.collect{ |column| "(LOWER(#{column}) LIKE ?)" }
+
+    sql = (['(' + token_clauses.join(' OR ') + ')'] * tokens.size).join(options[:all_words] ? ' AND ' : ' OR ')    
+    find_options = [sql, * (tokens.collect {|w| "%#{w.downcase}%"} * token_clauses.size).sort]
+
     project_conditions = []
-    project_conditions << (Project.allowed_to_condition(User.current, :view_hgp_cmis_files))
-    project_conditions << "#{HgpCmisFile.table_name}.project_id IN (#{projects.collect(&:id).join(',')})" unless projects.nil?
+    project_conditions << Project.allowed_to_condition(user, :view_hgp_cmis_files) 
+    project_conditions << "#{HgpCmisFile.table_name}.project_id IN (#{project_ids.join(',')})" if project_ids.present?
+
+    results = []        
     
-    results = []
-    results_count = 0
-    
-    with_scope(:find => {:conditions => [project_conditions.join(' AND ') + " AND #{HgpCmisFile.table_name}.deleted = :false", {:false => false}]}) do
-      with_scope(:find => find_options) do
-        results_count = count(:all)
-        results = find(:all, limit_options)
-      end
-    end
-    
+    scope = self.visible.joins(:project, :revisions)
+    scope = scope.limit(options[:limit]) unless options[:limit].blank?    
+    scope = scope.where(limit_options) unless limit_options.blank?
+    scope = scope.where(project_conditions.join(' AND '))    
+    results = scope.where(find_options).uniq.to_a
+
     if !options[:titles_only] && $xapian_bindings_available
       database = nil
       begin
-        database = Xapian::Database.new(Setting.plugin_hgp_cmis["hgp_cmis_index_database"].strip)
-      rescue
-        Rails.logger.warn "REDMAIN_XAPIAN ERROR: Xapian database is not properly set or initiated or is corrupted."
+        lang = Setting.plugin_hgp_cmis['hgp_cmis_stemming_lang'].strip
+        databasepath = File.join(
+          Setting.plugin_hgp_cmis['hgp_cmis_index_database'].strip, lang)
+        database = Xapian::Database.new(databasepath)
+      rescue Exception => e
+        Rails.logger.warn 'REDMAIN_XAPIAN ERROR: Xapian database is not properly set or initiated or is corrupted.'
+        Rails.logger.warn e.message
       end
 
-      unless database.nil?
+      if database
         enquire = Xapian::Enquire.new(database)
-        
-        queryString = tokens.join(' ')
+
+        query_string = tokens.join(' ')
         qp = Xapian::QueryParser.new()
-        stemmer = Xapian::Stem.new(Setting.plugin_hgp_cmis['hgp_cmis_stemming_lang'].strip)
+        stemmer = Xapian::Stem.new(lang)
         qp.stemmer = stemmer
         qp.database = database
-        
+
         case Setting.plugin_hgp_cmis['hgp_cmis_stemming_strategy'].strip
-          when "STEM_NONE" then qp.stemming_strategy = Xapian::QueryParser::STEM_NONE
-          when "STEM_SOME" then qp.stemming_strategy = Xapian::QueryParser::STEM_SOME
-          when "STEM_ALL" then qp.stemming_strategy = Xapian::QueryParser::STEM_ALL
+          when 'STEM_NONE'
+            qp.stemming_strategy = Xapian::QueryParser::STEM_NONE
+          when 'STEM_SOME'
+            qp.stemming_strategy = Xapian::QueryParser::STEM_SOME
+          when 'STEM_ALL'
+            qp.stemming_strategy = Xapian::QueryParser::STEM_ALL
         end
-      
+
         if options[:all_words]
           qp.default_op = Xapian::Query::OP_AND
-        else  
+        else
           qp.default_op = Xapian::Query::OP_OR
         end
-        
-        query = qp.parse_query(queryString)
-  
+
+        query = qp.parse_query(query_string)
+
         enquire.query = query
         matchset = enquire.mset(0, 1000)
-    
-        unless matchset.nil?
-          matchset.matches.each {|m|
+
+        if matchset          
+          matchset.matches.each { |m|
             docdata = m.document.data{url}
-            dochash = Hash[*docdata.scan(/(url|sample|modtime|type|size)=\/?([^\n\]]+)/).flatten]
-            filename = dochash["url"]
-            if !filename.nil?
-              hgp_cmis_attrs = filename.split("_")
-              next if hgp_cmis_attrs[1].blank?
-              next unless results.select{|f| f.id.to_s == hgp_cmis_attrs[1]}.empty?
+            dochash = Hash[*docdata.scan(/(url|sample|modtime|author|type|size)=\/?([^\n\]]+)/).flatten]
+            filename = dochash['url']
+            if filename
+              hgp_cmis_attrs = filename.scan(/^([^\/]+\/[^_]+)_([\d]+)_(.*)$/)
+              id_attribute = 0
+              id_attribute = hgp_cmis_attrs[0][1] if hgp_cmis_attrs.length > 0
+              next if hgp_cmis_attrs.length == 0 || id_attribute == 0
+              next unless results.select{|f| f.id.to_s == id_attribute}.empty?
               
-              find_conditions =  HgpCmisFile.merge_conditions(limit_options[:conditions], :id => hgp_cmis_attrs[1], :deleted => false )
-              hgp_cmis_file = HgpCmisFile.find(:first, :conditions => find_conditions )
-    
-              if !hgp_cmis_file.nil?
-                if options[:offset]
-                  if options[:before]
-                    next if hgp_cmis_file.updated_at < options[:offset]
-                  else
-                    next if hgp_cmis_file.updated_at > options[:offset]
-                  end
-                end
-              
-                allowed = User.current.allowed_to?(:view_hgp_cmis_files, hgp_cmis_file.project)
-                project_included = false
-                project_included = true if projects.nil?
-                if !project_included
-                  projects.each {|x| 
-                    project_included = true if x[:id] == hgp_cmis_file.project.id
-                  }
-                end
-  
-                if (allowed && project_included)
-                  results.push(hgp_cmis_file)
-                  results_count += 1
+              hgp_cmis_file = HgpCmisFile.visible.where(limit_options).where(:id => id_attribute).first
+              if hgp_cmis_file
+                if user.allowed_to?(:view_hgp_cmis_files, hgp_cmis_file.project) && 
+                    (project_ids.blank? || (project_ids.include?(hgp_cmis_file.project.id)))                                    
+                    Redmine::Search.cache_store.write("HgpCmisFile-#{hgp_cmis_file.id}", 
+                      dochash['sample'].force_encoding('UTF-8')) if dochash['sample']                  
+                  break if(!options[:limit].blank? && results.count >= options[:limit])
+                  results << hgp_cmis_file
                 end
               end
             end
           }
         end
-      end    
+      end
     end
     
-    [results, results_count]
+    [results, results.count]
   end
-  
+
 end

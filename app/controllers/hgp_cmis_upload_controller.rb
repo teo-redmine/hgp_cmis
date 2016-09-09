@@ -80,28 +80,15 @@ class HgpCmisUploadController < ApplicationController
         
         new_revision = HgpCmisFileRevision.new
         new_revision.path = @folder_path
-        # El archivo siempre va a ser nuevo, puesto que no permitimos la edición
-        #file = HgpCmisFile.find_file_by_name(@project, @folder, name)
-        #if file.nil?
-          file = HgpCmisFile.new
-          file.project = @project
-          file.name = name
-          file.folder = @folder
-          file.notification = !Setting.plugin_hgp_cmis["hgp_cmis_default_notifications"].blank?
-          
-          new_revision.minor_version = 0
-          new_revision.major_version = 0
-        #else
-        #  if file.locked_for_user?
-        #    failed_uploads.push(commited_file)
-        #    next
-        #  end
-        #  last_revision = file.last_revision
-        #  new_revision.source_revision = last_revision
-        #  new_revision.major_version = last_revision.major_version
-        #  new_revision.minor_version = last_revision.minor_version
-        #  new_revision.workflow = last_revision.workflow
-        #end
+   
+        file = HgpCmisFile.new
+        file.project = @project
+        file.name = name
+        file.folder = @folder
+        file.notification = !Setting.plugin_hgp_cmis["hgp_cmis_default_notifications"].blank?
+        
+        new_revision.minor_version = 0
+        new_revision.major_version = 0
 
         commited_disk_filepath = "#{HgpCmisHelper.temp_dir}/#{commited_file["disk_filename"].gsub(/[\/\\]/,'')}"
         
