@@ -60,11 +60,9 @@ end
 		-->
 		<p>
 			<%= label_tag("commited_files[#{i}][workflow]", l(:label_workflow) + ":") %>
+			<!-- Se modifica para que se suban los documentos aprobados directamente. -->
 			<%= select_tag("commited_files[#{i}][workflow]", 
-					options_for_select([ 
-							[l(:option_workflow_waiting_for_approval), 1],
-							[l(:option_workflow_approved), 2]], 
-						:selected => selected_workflow, :disabled => disabled_workflow)) %>
+					options_for_select([ [l(:option_workflow_approved), 2]], :selected => 2, :disabled => nil)) %>
 		</p>
 	</div>
 	<div class="splitcontentright clear">		
