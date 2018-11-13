@@ -25,7 +25,7 @@ Redmine::Plugin.register :hgp_cmis do
   name "Cmis"
   author "Junta de Andalucía"
   description "Document Management CMIS integrated"
-  version "1.6"
+  version "1.6.1"
   url "http://www.juntadeandalucia.es"
   author_url "http://www.juntadeandalucia.es"
   
